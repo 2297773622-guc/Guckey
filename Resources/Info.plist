@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleDeveloperName</key>
+	<string>顾初</string>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>zh_CN</string>
+	<key>CFBundleDisplayName</key>
+	<string>Guckey</string>
+	<key>CFBundleExecutable</key>
+	<string>Guckey</string>
+	<key>CFBundleIconFile</key>
+	<string>AppIcon.icns</string>
+	<key>CFBundleIdentifier</key>
+	<string>cn.guckey.app</string>
+	<key>CFBundleName</key>
+	<string>Guckey</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>1.2.2</string>
+	<key>CFBundleSignature</key>
+	<string>????</string>
+	<key>CFBundleVersion</key>
+	<string>9</string>
+	<key>LSApplicationCategoryType</key>
+	<string>public.app-category.music</string>
+	<key>LSMinimumSystemVersion</key>
+	<string>13.0</string>
+	<key>LSUIElement</key>
+	<false/>
+	<key>NSAppleEventsUsageDescription</key>
+	<string>用于在系统限制 MediaRemote 时，从 Music / Spotify 读取当前播放的歌名与歌手（只读，不控制播放）。</string>
+	<key>NSHighResolutionCapable</key>
+	<true/>
+	<key>NSHumanReadableCopyright</key>
+	<string>Copyright © 2026 顾初. All rights reserved.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>用于「AI 实时输入」模式检测演唱 / 伴奏的基调。音频仅在本地分析，不会录制、上传或回放。</string>
+	<key>NSPrincipalClass</key>
+	<string>NSApplication</string>
+	<key>NSScreenCaptureUsageDescription</key>
+	<string>用于通过 ScreenCaptureKit 捕获系统播放音频以分析歌曲基调。只读取音频流，不保存画面、不影响播放输出。</string>
+</dict>
+</plist>

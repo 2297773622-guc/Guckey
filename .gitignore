@@ -1,0 +1,23 @@
+# SwiftPM / Xcode 构建产物
+.build/
+.swiftpm/
+dist/
+DerivedData/
+*.xcodeproj
+*.xcworkspace
+
+# 打包产物
+*.dmg
+*.zip
+
+# macOS
+.DS_Store
+._*
+
+# 本地云端凭据（模板见 Resources/CloudConfig.example.json）
+CloudConfig.json
+
+# 编辑器
+.idea/
+.vscode/
+*.swp
