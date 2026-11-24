@@ -10,6 +10,9 @@ DerivedData/
 *.dmg
 *.zip
 
+# 例外：官网页面要分发的安装包
+!docs/assets/*.dmg
+
 # macOS
 .DS_Store
 ._*

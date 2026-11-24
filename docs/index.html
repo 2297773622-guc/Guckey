@@ -1,0 +1,922 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Guckey · macOS 三级基调决策与虚拟 MIDI 遥控</title>
+<meta name="description" content="Guckey 检测当前播放歌曲的基调，编码成 MIDI CC 驱动 Studio One 宏控制器，再由宏旋钮写进修音插件的 Key / Scale。独立 App，不加载 VST3 / AU，不参与音频渲染。">
+<meta name="theme-color" content="#06070A">
+<meta property="og:title" content="Guckey · 让修音插件的基调跟着歌一起动">
+<meta property="og:description" content="macOS 上的三级基调决策 + 虚拟 MIDI 遥控工具。手动 > 云端 > AI，稳定后才发 CC。">
+<meta property="og:type" content="website">
+<link rel="icon" href="assets/icon.png">
+<style>
+  :root{
+    --bg:#06070A;
+    --bg-soft:#0A0C11;
+    --panel:rgba(255,255,255,.035);
+    --panel-2:rgba(255,255,255,.055);
+    --line:rgba(255,255,255,.085);
+    --line-strong:rgba(255,255,255,.16);
+    --text:#ECEDF1;
+    --dim:#8E939E;
+    --dim-2:#6B7078;
+    --mint:#4FE3C1;
+    --violet:#8E7BFF;
+    --pink:#F08FC2;
+    --blue:#6FA8FF;
+    --amber:#E9C46A;
+    --green:#57D98A;
+    --radius:18px;
+    --max:1120px;
+  }
+
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{
+    margin:0;
+    background:var(--bg);
+    color:var(--text);
+    font-family:-apple-system,BlinkMacSystemFont,"SF Pro SC","SF Pro Text","PingFang SC","Hiragino Sans GB","Helvetica Neue",Arial,"Microsoft YaHei",sans-serif;
+    font-size:16px;
+    line-height:1.65;
+    -webkit-font-smoothing:antialiased;
+    text-rendering:optimizeLegibility;
+    overflow-x:hidden;
+  }
+  body::before{
+    content:"";
+    position:fixed;
+    inset:0;
+    pointer-events:none;
+    z-index:0;
+    background:
+      radial-gradient(720px 480px at 12% -6%, rgba(79,227,193,.10), transparent 62%),
+      radial-gradient(820px 520px at 88% 4%, rgba(142,123,255,.13), transparent 64%),
+      radial-gradient(900px 600px at 50% 108%, rgba(240,143,194,.07), transparent 66%);
+  }
+  ::selection{background:rgba(142,123,255,.35);color:#fff}
+
+  a{color:inherit;text-decoration:none}
+  img{max-width:100%;display:block}
+
+  .wrap{width:100%;max-width:var(--max);margin:0 auto;padding:0 28px;position:relative;z-index:1}
+  @media(max-width:640px){.wrap{padding:0 20px}}
+
+  /* ---------- nav ---------- */
+  .nav{
+    position:sticky;top:0;z-index:60;
+    backdrop-filter:saturate(160%) blur(14px);
+    -webkit-backdrop-filter:saturate(160%) blur(14px);
+    background:rgba(6,7,10,.55);
+    border-bottom:1px solid transparent;
+    transition:background .3s ease,border-color .3s ease;
+  }
+  .nav.scrolled{background:rgba(6,7,10,.82);border-bottom-color:var(--line)}
+  .nav-inner{display:flex;align-items:center;gap:14px;height:66px}
+  .brand{display:flex;align-items:center;gap:11px;font-weight:600;letter-spacing:.2px}
+  .brand img{width:30px;height:30px;border-radius:8px}
+  .brand span{font-size:16.5px}
+  .nav-links{display:flex;gap:26px;margin-left:26px;font-size:14px;color:var(--dim)}
+  .nav-links a{transition:color .2s}
+  .nav-links a:hover{color:var(--text)}
+  .nav-cta{margin-left:auto;display:flex;align-items:center;gap:10px}
+
+  .btn{
+    display:inline-flex;align-items:center;justify-content:center;gap:9px;
+    border-radius:999px;
+    font-size:14.5px;font-weight:550;
+    padding:11px 20px;
+    border:1px solid var(--line-strong);
+    color:var(--text);
+    background:var(--panel-2);
+    transition:transform .18s ease,background .2s ease,border-color .2s ease,box-shadow .25s ease;
+    cursor:pointer;
+    white-space:nowrap;
+  }
+  .btn:hover{transform:translateY(-1px);background:rgba(255,255,255,.09);border-color:rgba(255,255,255,.26)}
+  .btn:active{transform:translateY(0)}
+  .btn-primary{
+    border:none;
+    color:#07080B;
+    background:linear-gradient(120deg,#5BE8C8 0%,#8FD9E8 38%,#A79BFF 72%,#F0A6CC 100%);
+    box-shadow:0 10px 30px -12px rgba(120,220,220,.55), inset 0 0 0 1px rgba(255,255,255,.18);
+  }
+  .btn-primary:hover{background:linear-gradient(120deg,#6BF2D2 0%,#9EE2EF 38%,#B4A9FF 72%,#F7B4D6 100%);box-shadow:0 14px 38px -12px rgba(120,220,220,.7)}
+  .btn-sm{padding:8px 16px;font-size:13.5px}
+  .btn .arrow{transition:transform .2s ease}
+  .btn:hover .arrow{transform:translateX(3px)}
+
+  /* ---------- hero ---------- */
+  .hero{padding:70px 0 22px;position:relative}
+  .hero-grid{display:grid;grid-template-columns:1.02fr 1fr;gap:64px;align-items:center}
+  .badge{
+    display:inline-flex;align-items:center;gap:9px;
+    font-size:12.5px;color:var(--dim);
+    padding:6px 13px 6px 9px;border:1px solid var(--line);
+    border-radius:999px;background:rgba(255,255,255,.035);
+    letter-spacing:.2px;
+  }
+  .dot-live{width:6px;height:6px;border-radius:50%;background:var(--mint);box-shadow:0 0 0 3px rgba(79,227,193,.16)}
+  h1{
+    font-size:clamp(34px,4.4vw,56px);
+    line-height:1.16;
+    letter-spacing:-1.4px;
+    font-weight:640;
+    margin:26px 0 0;
+  }
+  .grad{
+    background:linear-gradient(100deg,#5BE8C8,#8FD9E8 34%,#A79BFF 68%,#F0A6CC);
+    -webkit-background-clip:text;background-clip:text;color:transparent;
+  }
+  .lede{color:var(--dim);font-size:16.5px;line-height:1.78;margin:22px 0 0;max-width:29em}
+  .lede b{color:#D6D9E0;font-weight:560}
+  .hero-cta{display:flex;align-items:center;gap:12px;margin-top:32px;flex-wrap:wrap}
+  .hero-meta{display:flex;gap:20px;margin-top:26px;font-size:12.5px;color:var(--dim-2);flex-wrap:wrap}
+  .hero-meta span{display:inline-flex;align-items:center;gap:7px}
+  .hero-meta i{width:4px;height:4px;border-radius:50%;background:var(--dim-2);display:inline-block}
+
+  .shot-wrap{position:relative}
+  .shot-wrap::before{
+    content:"";position:absolute;inset:-14% -10% -18% -10%;
+    background:radial-gradient(closest-side,rgba(142,123,255,.22),transparent 72%);
+    filter:blur(18px);z-index:0;
+  }
+  .window{
+    position:relative;z-index:1;
+    border-radius:14px;
+    border:1px solid rgba(255,255,255,.13);
+    box-shadow:0 40px 80px -34px rgba(0,0,0,.95),0 0 0 1px rgba(0,0,0,.4),0 1px 0 rgba(255,255,255,.07) inset;
+    overflow:hidden;
+    background:#15171C;
+    transform:perspective(1400px) rotateY(-4deg) rotateX(1.2deg);
+    transition:transform .6s cubic-bezier(.2,.7,.3,1);
+  }
+  .window:hover{transform:perspective(1400px) rotateY(0deg) rotateX(0deg)}
+  .window img{width:100%;height:auto}
+  .float-card{
+    position:absolute;z-index:2;right:-26px;bottom:-42px;
+    width:238px;border-radius:13px;overflow:hidden;
+    border:1px solid rgba(255,255,255,.14);
+    box-shadow:0 24px 48px -18px rgba(0,0,0,.95);
+    background:#2A2C31;
+    animation:floaty 7s ease-in-out infinite;
+  }
+  .float-card img{width:100%}
+  @keyframes floaty{0%,100%{transform:translateY(0)}50%{transform:translateY(-9px)}}
+  .shot-tag{
+    position:absolute;z-index:2;left:-14px;top:-14px;
+    font-size:11.5px;color:var(--dim);
+    background:rgba(10,12,17,.9);
+    border:1px solid var(--line);border-radius:8px;
+    padding:5px 10px;backdrop-filter:blur(8px);
+    letter-spacing:.3px;
+  }
+
+  /* ---------- section shell ---------- */
+  section{position:relative;z-index:1}
+  section[id]{scroll-margin-top:84px}
+  .band{padding:96px 0}
+  .band.tight{padding:42px 0 60px}
+  .eyebrow{
+    font-size:12px;letter-spacing:2.4px;text-transform:uppercase;
+    color:var(--dim-2);font-weight:600;margin:0 0 16px;
+  }
+  h2{font-size:clamp(25px,3vw,36px);line-height:1.28;letter-spacing:-.8px;font-weight:620;margin:0}
+  .sub{color:var(--dim);margin:16px 0 0;max-width:44em;font-size:15.5px;line-height:1.8}
+  .sec-head{max-width:720px}
+  .divider{height:1px;background:linear-gradient(90deg,transparent,var(--line),transparent)}
+
+  /* ---------- three cards ---------- */
+  .trio{display:grid;grid-template-columns:repeat(3,1fr);gap:18px;margin-top:46px}
+  .card{
+    position:relative;
+    border:1px solid var(--line);
+    background:linear-gradient(180deg,rgba(255,255,255,.045),rgba(255,255,255,.018));
+    border-radius:var(--radius);
+    padding:26px 24px;
+    transition:border-color .25s ease,transform .25s ease,background .25s ease;
+  }
+  .card:hover{border-color:var(--line-strong);transform:translateY(-2px);background:linear-gradient(180deg,rgba(255,255,255,.06),rgba(255,255,255,.022))}
+  .card .num{
+    font-family:ui-monospace,SFMono-Regular,"SF Mono",Menlo,monospace;
+    font-size:11.5px;letter-spacing:1px;color:var(--dim-2);
+  }
+  .card h3{font-size:16.5px;font-weight:600;margin:12px 0 8px;letter-spacing:-.2px}
+  .card p{margin:0;color:var(--dim);font-size:14px;line-height:1.75}
+  .card .ico{
+    width:34px;height:34px;border-radius:10px;display:grid;place-items:center;
+    border:1px solid var(--line);margin-bottom:16px;
+    background:rgba(255,255,255,.04);
+  }
+  .card .ico svg{width:17px;height:17px}
+
+  /* ---------- chain ---------- */
+  .chain{
+    display:grid;grid-template-columns:repeat(4,1fr);gap:0;
+    margin-top:44px;border:1px solid var(--line);border-radius:16px;overflow:hidden;
+    background:rgba(255,255,255,.02);
+  }
+  .chain-cell{padding:22px 20px;border-right:1px solid var(--line);position:relative}
+  .chain-cell:last-child{border-right:none}
+  .chain-cell .k{font-size:11px;letter-spacing:1.6px;color:var(--dim-2);text-transform:uppercase}
+  .chain-cell .v{font-size:14.5px;margin-top:7px;font-weight:520;letter-spacing:-.15px}
+  .chain-cell .v small{display:block;font-weight:400;color:var(--dim);font-size:12.5px;margin-top:5px;letter-spacing:0}
+  .chain-cell::after{
+    content:"";position:absolute;right:-4.5px;top:50%;width:8px;height:8px;
+    border-right:1.5px solid rgba(255,255,255,.34);border-top:1.5px solid rgba(255,255,255,.34);
+    transform:translateY(-50%) rotate(45deg);background:var(--bg);z-index:2;
+  }
+  .chain-cell:last-child::after{display:none}
+
+  /* ---------- levels ---------- */
+  .levels{margin-top:44px;display:flex;flex-direction:column;gap:2px;border-radius:16px;overflow:hidden;border:1px solid var(--line)}
+  .level{
+    display:grid;grid-template-columns:66px 1fr auto;gap:20px;align-items:start;
+    padding:24px 26px;background:rgba(255,255,255,.028);
+    border-bottom:1px solid var(--line);
+    transition:background .25s ease;
+  }
+  .level:last-child{border-bottom:none}
+  .level:hover{background:rgba(255,255,255,.05)}
+  .level .rank{
+    font-family:ui-monospace,SFMono-Regular,"SF Mono",Menlo,monospace;
+    font-size:26px;line-height:1;color:rgba(255,255,255,.14);font-weight:500;
+    padding-top:2px;
+  }
+  .level h4{margin:0;font-size:15.5px;font-weight:600;display:flex;align-items:center;gap:10px}
+  .level h4 .d{width:7px;height:7px;border-radius:50%}
+  .level p{margin:7px 0 0;color:var(--dim);font-size:14px;line-height:1.7;max-width:56ch}
+  .level .pill{
+    font-size:11.5px;color:var(--dim);border:1px solid var(--line);
+    border-radius:999px;padding:5px 11px;white-space:nowrap;
+    background:rgba(255,255,255,.03);align-self:center;
+  }
+  .d-green{background:var(--green);box-shadow:0 0 12px rgba(87,217,138,.55)}
+  .d-blue{background:var(--blue);box-shadow:0 0 12px rgba(111,168,255,.5)}
+  .d-amber{background:var(--amber);box-shadow:0 0 12px rgba(233,196,106,.5)}
+
+  /* ---------- keys strip ---------- */
+  .keys{display:flex;gap:6px;margin-top:40px;flex-wrap:wrap}
+  .keys span{
+    flex:1;min-width:38px;text-align:center;
+    font-family:ui-monospace,SFMono-Regular,"SF Mono",Menlo,monospace;
+    font-size:11.5px;color:var(--dim-2);
+    padding:8px 0;border-radius:6px;border:1px solid var(--line);
+    background:rgba(255,255,255,.02);
+    transition:all .3s ease;
+  }
+  .keys span.on{
+    color:#07080B;font-weight:700;border-color:transparent;
+    background:linear-gradient(140deg,#5BE8C8,#A79BFF);
+    box-shadow:0 8px 22px -10px rgba(140,200,220,.7);
+  }
+
+  /* ---------- features ---------- */
+  .grid-2{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-top:44px}
+  .feat{border:1px solid var(--line);border-radius:var(--radius);padding:24px;background:rgba(255,255,255,.025)}
+  .feat h3{margin:0 0 10px;font-size:15.5px;font-weight:600;display:flex;align-items:center;gap:9px}
+  .feat p{margin:0;color:var(--dim);font-size:14px;line-height:1.75}
+  .chip{
+    display:inline-block;font-family:ui-monospace,SFMono-Regular,"SF Mono",Menlo,monospace;
+    font-size:11.5px;color:#C9CCD4;background:rgba(255,255,255,.06);
+    border:1px solid var(--line);border-radius:6px;padding:2px 7px;margin:0 2px;
+  }
+
+  /* ---------- table ---------- */
+  .tbl{width:100%;border-collapse:collapse;margin-top:36px;font-size:14px}
+  .tbl th{
+    text-align:left;font-weight:600;font-size:11.5px;letter-spacing:1.3px;text-transform:uppercase;
+    color:var(--dim-2);padding:0 14px 12px 0;border-bottom:1px solid var(--line);
+  }
+  .tbl td{padding:13px 14px 13px 0;border-bottom:1px solid rgba(255,255,255,.05);color:var(--dim);vertical-align:top}
+  .tbl td:first-child{color:var(--text);font-weight:520;white-space:nowrap}
+  .tbl tr:last-child td{border-bottom:none}
+  .mono{font-family:ui-monospace,SFMono-Regular,"SF Mono",Menlo,monospace;font-size:12.5px}
+
+  /* ---------- download ---------- */
+  .dl-grid{display:grid;grid-template-columns:1fr;gap:20px;margin-top:44px}
+  .dl{
+    position:relative;border-radius:22px;padding:34px 36px;
+    border:1px solid var(--line-strong);
+    background:
+      radial-gradient(620px 240px at 4% -30%, rgba(79,227,193,.15), transparent 60%),
+      radial-gradient(560px 280px at 100% 0%, rgba(142,123,255,.17), transparent 62%),
+      rgba(255,255,255,.035);
+    overflow:hidden;
+    display:grid;grid-template-columns:1fr auto;
+    align-items:center;gap:24px 44px;
+  }
+  .dl-main{min-width:0}
+  .dl-cta{
+    display:flex;flex-direction:column;align-items:flex-end;gap:10px;
+    align-self:center;justify-self:end;
+  }
+  .dl-top{display:flex;align-items:center;gap:14px}
+  .dl-top img{width:52px;height:52px;border-radius:13px;box-shadow:0 12px 26px -12px rgba(0,0,0,.9)}
+  .dl-top .t{font-size:19px;font-weight:620;letter-spacing:-.3px;line-height:1.3}
+  .dl-top .s{font-size:12.5px;color:var(--dim);margin-top:2px}
+  .dl p.desc{color:var(--dim);font-size:14px;line-height:1.75;margin:20px 0 0}
+  .dl-specs{display:flex;gap:8px;flex-wrap:wrap;margin-top:18px}
+  .spec{font-size:11.5px;color:var(--dim);border:1px solid var(--line);border-radius:7px;padding:4px 9px;background:rgba(0,0,0,.2)}
+
+  /* ---------- release notes ---------- */
+  .rel{
+    margin-top:20px;border:1px solid var(--line);border-radius:20px;
+    background:rgba(255,255,255,.022);overflow:hidden;
+  }
+  .rel-row{
+    display:grid;grid-template-columns:170px 1fr auto;gap:8px 24px;
+    align-items:center;padding:22px 26px;
+    border-bottom:1px solid var(--line);
+  }
+  .rel-row:last-child{border-bottom:none}
+  .rel-v{
+    font-family:ui-monospace,SFMono-Regular,"SF Mono",Menlo,monospace;
+    font-size:14px;font-weight:600;letter-spacing:-.2px;
+    display:flex;align-items:center;gap:9px;flex-wrap:wrap;
+  }
+  .rel-v.dim{color:var(--dim);font-weight:500}
+  .rel-badge{
+    font-family:-apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif;
+    font-size:10.5px;font-weight:600;letter-spacing:.3px;
+    padding:2px 7px;border-radius:999px;
+    color:#07080B;background:linear-gradient(120deg,#5BE8C8,#A79BFF);
+  }
+  .rel-badge.old{
+    color:var(--dim);background:rgba(255,255,255,.06);
+    border:1px solid var(--line);
+  }
+  .rel-list{
+    margin:0;padding:0;list-style:none;
+    display:flex;flex-direction:column;gap:7px;
+    font-size:14px;color:var(--dim);line-height:1.6;
+  }
+  .rel-list li{position:relative;padding-left:16px}
+  .rel-list li::before{
+    content:"";position:absolute;left:2px;top:.62em;
+    width:4px;height:4px;border-radius:50%;background:var(--dim-2);
+  }
+  .rel-note{font-size:13.5px;color:var(--dim-2)}
+  .rel-link{
+    display:inline-flex;align-items:center;gap:6px;
+    font-size:13px;color:var(--dim);
+    border:1px solid var(--line);border-radius:999px;
+    padding:7px 14px;background:rgba(255,255,255,.03);
+    transition:all .2s ease;white-space:nowrap;
+  }
+  .rel-link:hover{color:var(--text);border-color:var(--line-strong);background:rgba(255,255,255,.07)}
+  .note{
+    margin-top:22px;border:1px solid var(--line);border-radius:14px;
+    padding:20px 22px;background:rgba(255,255,255,.025);
+    display:flex;gap:14px;align-items:flex-start;
+  }
+  .note .ico{flex:0 0 auto;width:22px;height:22px;color:var(--amber);margin-top:1px}
+  .note .body{font-size:13.5px;color:var(--dim);line-height:1.75}
+  .note .body b{color:var(--text);font-weight:560;margin-right:6px}
+  .note code{
+    font-family:ui-monospace,SFMono-Regular,"SF Mono",Menlo,monospace;
+    background:rgba(255,255,255,.07);padding:1px 5px;border-radius:4px;font-size:12px;color:#D6D9E0;
+  }
+
+  /* ---------- faq ---------- */
+  .faq{margin-top:40px;border-top:1px solid var(--line)}
+  details{border-bottom:1px solid var(--line)}
+  summary{
+    cursor:pointer;list-style:none;padding:20px 34px 20px 0;position:relative;
+    font-size:15px;font-weight:520;color:var(--text);
+    transition:color .2s;
+  }
+  summary::-webkit-details-marker{display:none}
+  summary:hover{color:#fff}
+  summary::after{
+    content:"";position:absolute;right:6px;top:50%;width:7px;height:7px;
+    border-right:1.5px solid var(--dim);border-bottom:1.5px solid var(--dim);
+    transform:translateY(-70%) rotate(45deg);
+    transition:transform .25s ease,border-color .2s;
+  }
+  details[open] summary::after{transform:translateY(-30%) rotate(-135deg);border-color:var(--text)}
+  details .ans{padding:0 40px 22px 0;color:var(--dim);font-size:14px;line-height:1.8;margin-top:-4px}
+  details .ans .mono{color:#C9CCD4}
+
+  /* ---------- contact ---------- */
+  .contact-grid{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-top:44px}
+  .contact{
+    display:flex;align-items:center;gap:16px;
+    border:1px solid var(--line);border-radius:var(--radius);padding:22px;
+    background:rgba(255,255,255,.03);
+    transition:border-color .25s,background .25s,transform .25s;
+  }
+  .contact:hover{border-color:var(--line-strong);background:rgba(255,255,255,.05);transform:translateY(-2px)}
+  .contact .av{
+    flex:0 0 auto;width:46px;height:46px;border-radius:13px;display:grid;place-items:center;
+    border:1px solid rgba(255,255,255,.12);
+  }
+  .contact .av svg{width:21px;height:21px;color:#fff}
+  .av-wx{background:linear-gradient(140deg,#2ECC5E,#06A03C)}
+  .av-mail{background:linear-gradient(140deg,#5C8DFF,#3355DD)}
+  .contact .info{min-width:0;flex:1}
+  .contact .lab{font-size:11.5px;color:var(--dim-2);letter-spacing:.6px}
+  .contact .val{
+    font-family:ui-monospace,SFMono-Regular,"SF Mono",Menlo,monospace;
+    font-size:15px;margin-top:3px;letter-spacing:-.2px;
+    overflow:hidden;text-overflow:ellipsis;
+  }
+  .contact .hint{font-size:11.5px;color:var(--dim-2);margin-top:4px}
+  .copy{
+    flex:0 0 auto;border:1px solid var(--line-strong);background:rgba(255,255,255,.05);
+    color:var(--text);border-radius:9px;padding:8px 13px;font-size:12.5px;cursor:pointer;
+    transition:all .2s ease;font-family:inherit;
+  }
+  .copy:hover{background:rgba(255,255,255,.1)}
+  .copy.done{border-color:rgba(87,217,138,.55);color:var(--green);background:rgba(87,217,138,.1)}
+
+  /* ---------- footer ---------- */
+  footer{border-top:1px solid var(--line);padding:44px 0 54px;position:relative;z-index:1}
+  .foot{display:flex;align-items:center;justify-content:space-between;gap:20px;flex-wrap:wrap}
+  .foot-l{display:flex;align-items:center;gap:12px;color:var(--dim);font-size:13.5px}
+  .foot-l img{width:24px;height:24px;border-radius:6px;opacity:.9}
+  .foot-r{display:flex;gap:22px;font-size:13px;color:var(--dim-2);flex-wrap:wrap}
+  .foot-r a:hover{color:var(--text)}
+  .copyright{
+    margin-top:24px;padding-top:18px;
+    border-top:1px solid rgba(255,255,255,.05);
+    display:flex;justify-content:space-between;gap:8px 20px;flex-wrap:wrap;
+    font-size:12.5px;color:var(--dim);letter-spacing:.2px;
+  }
+  .copyright span:last-child{color:var(--dim-2)}
+
+  /* ---------- reveal ---------- */
+  .rv{opacity:0;transform:translateY(16px);transition:opacity .7s cubic-bezier(.2,.7,.3,1),transform .7s cubic-bezier(.2,.7,.3,1)}
+  .rv.in{opacity:1;transform:none}
+
+  /* ---------- responsive ---------- */
+  @media(max-width:980px){
+    .hero-grid{grid-template-columns:1fr;gap:52px}
+    .window{transform:none}
+    .trio{grid-template-columns:1fr}
+    .grid-2{grid-template-columns:1fr}
+    .chain{grid-template-columns:1fr 1fr}
+    .chain-cell:nth-child(2){border-right:none}
+    .chain-cell:nth-child(-n+2){border-bottom:1px solid var(--line)}
+    .chain-cell::after{display:none}
+    .dl-grid{grid-template-columns:1fr}
+    .contact-grid{grid-template-columns:1fr}
+    .nav-links{display:none}
+    .band{padding:72px 0}
+    .hero{padding:52px 0 30px}
+  }
+  @media(max-width:640px){
+    .hero-cta{flex-direction:column;align-items:stretch;gap:10px}
+    .hero-cta .btn{width:100%}
+    .hero-meta{gap:8px 16px}
+    .hero-meta i{display:none}
+    .level{grid-template-columns:44px 1fr;gap:14px;padding:20px}
+    .level .pill{grid-column:2;justify-self:start;margin-top:2px;font-size:11px}
+    .float-card{width:186px;right:-2px;bottom:-26px}
+    .shot-tag{left:0;top:-12px}
+    .dl{padding:26px 22px;grid-template-columns:1fr;gap:22px}
+    .dl-cta{
+      align-items:stretch;justify-self:stretch;
+      padding-top:22px;border-top:1px solid rgba(255,255,255,.08);
+    }
+    .dl-cta .btn{width:100%}
+    .rel-row{grid-template-columns:1fr;gap:12px;padding:20px 22px;align-items:start}
+    .rel-link{justify-self:start}
+    .foot{flex-direction:column;align-items:flex-start}
+    .keys{gap:4px}
+    .keys span{min-width:0;font-size:10px;padding:7px 0;border-radius:5px}
+
+    /* 参数表在小屏改为卡片式 */
+    .tbl thead{display:none}
+    .tbl tbody tr{
+      display:grid;grid-template-columns:1fr auto;gap:3px 12px;
+      padding:14px 0;border-bottom:1px solid rgba(255,255,255,.055);
+    }
+    .tbl td{display:block;padding:0;border:none;white-space:normal!important}
+    .tbl td:nth-child(2){justify-self:end;text-align:right;color:#C9CCD4;font-size:12px}
+    .tbl td:last-child{grid-column:1 / -1;font-size:13px;line-height:1.65;margin-top:2px}
+  }
+  @media(max-width:560px){
+    .float-card{display:none}
+  }
+  @media(prefers-reduced-motion:reduce){
+    *{animation:none!important;transition:none!important}
+    html{scroll-behavior:auto}
+    .rv{opacity:1;transform:none}
+  }
+</style>
+</head>
+<body>
+
+<!-- ============ NAV ============ -->
+<nav class="nav" id="nav">
+  <div class="wrap nav-inner">
+    <a class="brand" href="#top"><img src="assets/icon.png" alt="Guckey"><span>Guckey</span></a>
+    <div class="nav-links">
+      <a href="#how">工作原理</a>
+      <a href="#features">能力</a>
+      <a href="#download">下载</a>
+      <a href="#faq">常见问题</a>
+      <a href="#contact">联系</a>
+    </div>
+    <div class="nav-cta">
+      <a class="btn btn-sm btn-primary" href="#download">下载</a>
+    </div>
+  </div>
+</nav>
+
+<!-- ============ HERO ============ -->
+<header class="hero" id="top">
+  <div class="wrap hero-grid">
+    <div>
+      <span class="badge"><span class="dot-live"></span>v1.2.2 · macOS 13+ · Apple Silicon 与 Intel</span>
+      <h1>让修音插件的基调<br><span class="grad">跟着歌一起动。</span></h1>
+      <p class="lede">
+        Guckey 检测当前播放歌曲的基调，编码成三条 MIDI CC，推给 Studio One 的宏控制器旋钮，
+        再由宏旋钮写进插件里的 <b>Key / Scale</b>。
+        它是独立 App —— 不加载 VST3 / AU / AAX，不实例化 <span class="mono">AVAudioUnit</span>，
+        <b>完全不参与音频渲染链路</b>。
+      </p>
+      <div class="hero-cta">
+        <a class="btn btn-primary" href="assets/Guckey-1.2.1.dmg" download>下载 Guckey · 2.3 MB <svg class="arrow" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v13M6 11l6 6 6-6"/></svg></a>
+        <a class="btn" href="#how">看它怎么工作 <svg class="arrow" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h13M13 6l6 6-6 6"/></svg></a>
+      </div>
+      <div class="hero-meta">
+        <span>手动 &gt; 云端 &gt; AI 三级决策</span>
+        <i></i>
+        <span>虚拟 MIDI 源 · CoreMIDI</span>
+        <i></i>
+        <span>音频只在本地分析</span>
+      </div>
+    </div>
+
+    <div class="shot-wrap">
+      <span class="shot-tag">控制台 · 实时</span>
+      <div class="window"><img src="assets/shot-main.png" alt="Guckey 控制台界面：当前基调 G Major，来源为手动，右侧为 MIDI 事件日志"></div>
+      <div class="float-card"><img src="assets/shot-float.png" alt="Guckey 悬浮窗：基调与电音强度旋钮"></div>
+    </div>
+  </div>
+</header>
+
+<!-- ============ CHAIN ============ -->
+<section class="band tight">
+  <div class="wrap">
+    <div class="chain rv">
+      <div class="chain-cell">
+        <div class="k">01 · 读</div>
+        <div class="v">拿到现在在放什么<small>MediaRemote / AppleScript / 窗口标题</small></div>
+      </div>
+      <div class="chain-cell">
+        <div class="k">02 · 判</div>
+        <div class="v">三级基调决策<small>手动 → 云端曲库 → AI 实时分析</small></div>
+      </div>
+      <div class="chain-cell">
+        <div class="k">03 · 发</div>
+        <div class="v">三条 MIDI CC<small>Root #20 · Scale #22 · Speed #24</small></div>
+      </div>
+      <div class="chain-cell">
+        <div class="k">04 · 落</div>
+        <div class="v">写进插件参数<small>外部设备 → 宏旋钮 → Key / Scale</small></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ HOW ============ -->
+<section class="band" id="how">
+  <div class="wrap">
+    <div class="sec-head rv">
+      <p class="eyebrow">Decision Engine</p>
+      <h2>一个基调，只认一个来源。</h2>
+      <p class="sub">
+        同一个歌名可能同时被手动记录、云端曲库和实时分析命中。Guckey 用固定优先级裁决，
+        并且一旦锁定，就不再让后面的结果改写它 —— 这是「CC 不再乱跳」的关键。
+      </p>
+    </div>
+
+    <div class="keys rv" id="keys">
+      <span>C</span><span>C♯</span><span>D</span><span>D♯</span><span>E</span><span>F</span>
+      <span>F♯</span><span class="on">G</span><span>G♯</span><span>A</span><span>A♯</span><span>B</span>
+    </div>
+
+    <div class="levels rv">
+      <div class="level">
+        <div class="rank">01</div>
+        <div>
+          <h4><span class="d d-green"></span>手动更正</h4>
+          <p>本地 SQLite 里的 <span class="mono">manual_keys</span>。命中即强制锁定，无视云端与 AI，只发一次锁定的值。</p>
+        </div>
+        <span class="pill">最高优先 · 命中即锁</span>
+      </div>
+      <div class="level">
+        <div class="rank">02</div>
+        <div>
+          <h4><span class="d d-blue"></span>云端曲库</h4>
+          <p>云端曲库同步下来的 <span class="mono">cloud_keys</span>。先精准匹配，失败再走 Levenshtein 模糊匹配（容差随长度放宽）。</p>
+        </div>
+        <span class="pill">精准 → 模糊</span>
+      </div>
+      <div class="level">
+        <div class="rank">03</div>
+        <div>
+          <h4><span class="d d-amber"></span>AI 实时分析</h4>
+          <p>音频进自研 DSP（YIN + FFT 色度 + Krumhansl 剖面），但必须通过稳定化模块才允许输出。</p>
+        </div>
+        <span class="pill">稳定后才发</span>
+      </div>
+    </div>
+
+    <div class="note rv" style="margin-top:26px">
+      <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M12 9v4M12 17h.01"/><circle cx="12" cy="12" r="9"/></svg>
+      <div class="body">
+        <b>实现点</b>　一旦 <span class="mono">lockedSource != nil</span>，引擎会直接丢弃后续所有 AI 结果。
+        所以你在 Studio One 里看到的旋钮是「钉住的」，而不是每秒抖一次的。
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ STABILIZER ============ -->
+<section class="band" style="padding-top:0" id="features">
+  <div class="wrap">
+    <div class="sec-head rv">
+      <p class="eyebrow">Stabilizer</p>
+      <h2>AI 那一级的每一帧，都要先过关。</h2>
+      <p class="sub">调性估计本身不做防抖，抖动全部交给稳定化模块处理。以下参数都能在 App 里调。</p>
+    </div>
+
+    <table class="tbl rv">
+      <thead><tr><th style="width:30%">参数</th><th style="width:16%">默认</th><th>作用</th></tr></thead>
+      <tbody>
+        <tr><td>置信度下限</td><td class="mono">0.70</td><td>Krumhansl 相关系数低于此值的单帧直接丢弃</td></tr>
+        <tr><td>滑动窗口</td><td class="mono">10 s</td><td>窗口内某一调占比 &gt; 60% 才允许输出</td></tr>
+        <tr><td>首次锁定最少样本</td><td class="mono">6</td><td>防止 2–3 帧就抢锁导致占比虚高</td></tr>
+        <tr><td>迟滞保持时长</td><td class="mono">3 s</td><td>新调性连续保持这么久才允许切换</td></tr>
+        <tr><td>迟滞置信度优势</td><td class="mono">0.15</td><td>需高出 <span class="mono">locked + 0.15 × (1 − locked)</span>，按剩余余量折算以保证可达</td></tr>
+        <tr><td>启动静默</td><td class="mono">6 s</td><td>切歌后这段时间内不发任何 CC</td></tr>
+        <tr><td>分析频段</td><td class="mono">60–500 Hz</td><td>频域带通，聚焦和弦与贝斯</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ============ FEATURES ============ -->
+<section class="band" style="padding-top:0">
+  <div class="wrap">
+    <div class="grid-2 rv">
+      <div class="feat">
+        <h3><span class="d d-green" style="width:7px;height:7px;border-radius:50%"></span>12 音级逐级校准</h3>
+        <p>默认把 Root 的 12 档等分到插件低 / 高档之间，取区间正中；档位能逐音级覆盖，也能用「扫动 CC#20」让宿主自己学一遍。</p>
+      </div>
+      <div class="feat">
+        <h3><span class="d d-blue" style="width:7px;height:7px;border-radius:50%"></span>按插件自动匹配调式表</h3>
+        <p>内置 Auto-Tune Pro、Auto-Tune Advanced、Auto-Tune (2026)、Waves Tune Realtime、Topline Vocal Tune 的调式表；不在列表里的插件选「自定义」，填一下调式总数即可。</p>
+      </div>
+      <div class="feat">
+        <h3><span class="d d-amber" style="width:7px;height:7px;border-radius:50%"></span>只读云端，切歌零请求</h3>
+        <p>云端曲库每次同步整体覆盖本地缓存，并顺带清理已删除的行。查询只读本地 SQLite，播放中不发任何网络请求。</p>
+      </div>
+      <div class="feat">
+        <h3><span class="d" style="width:7px;height:7px;border-radius:50%;background:var(--pink);box-shadow:0 0 12px rgba(240,143,194,.5)"></span>悬浮窗 · 全局快捷键</h3>
+        <p>无边框常驻面板，顶边锚定、悬停展开，位置会记住。⌥⌘K 随时叫出来看一眼当前基调，或者顺手改掉。</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ DOWNLOAD ============ -->
+<section class="band" id="download">
+  <div class="wrap">
+    <div class="sec-head rv">
+      <p class="eyebrow">Download</p>
+      <h2>下载</h2>
+      <p class="sub">同一份安装包同时支持 Apple Silicon 与 Intel 两种芯片。macOS 13.0 或更新。</p>
+    </div>
+
+    <div class="dl-grid">
+      <div class="dl rv">
+        <div class="dl-main">
+          <div class="dl-top">
+            <img src="assets/icon.png" alt="Guckey 图标">
+            <div>
+              <div class="t">Guckey</div>
+              <div class="s">v1.2.2 · 最新版本</div>
+            </div>
+          </div>
+          <p class="desc">基调检测 + 三级决策 + 三条 MIDI CC 输出，控制台与悬浮窗共用一个状态源。</p>
+          <div class="dl-specs">
+            <span class="spec">macOS 13.0 或更新</span>
+            <span class="spec">Apple Silicon + Intel</span>
+            <span class="spec">2.2 MB</span>
+            <span class="spec">.dmg</span>
+          </div>
+        </div>
+        <div class="dl-cta">
+          <a class="btn btn-primary" href="assets/Guckey-1.2.2.dmg" download>下载 .dmg <svg class="arrow" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v13M6 11l6 6 6-6"/></svg></a>
+        </div>
+      </div>
+    </div>
+
+    <!-- 版本记录 -->
+    <div class="rel rv">
+      <div class="rel-row">
+        <div class="rel-v">v1.2.2<span class="rel-badge">最新</span></div>
+        <ul class="rel-list">
+          <li>优化启动速度</li>
+          <li>调整曲库搜索的显示效果</li>
+          <li>修复偶现的启动异常问题</li>
+        </ul>
+      </div>
+      <div class="rel-row">
+        <div class="rel-v dim">v1.2.1<span class="rel-badge old">历史版本</span></div>
+        <div class="rel-note">2.3 MB · 保留供需要回退的用户下载</div>
+        <a class="rel-link" href="assets/Guckey-1.2.1.dmg" download>下载 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v13M6 11l6 6 6-6"/></svg></a>
+      </div>
+    </div>
+
+    <div class="note rv">
+      <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l7 3v5.5c0 4.2-2.9 7.7-7 8.5-4.1-.8-7-4.3-7-8.5V6l7-3z"/><path d="M9.2 12.1l2 2 3.6-3.7"/></svg>
+      <div class="body">
+        <b>首次打开</b>　应用未经 Apple 公证，系统会提示「无法验证开发者」。打开「访达」→ 右键点 App → 选「打开」，或到
+        <code>系统设置 → 隐私与安全性</code>点「仍要打开」，之后就能正常双击启动。
+      </div>
+    </div>
+
+    <div class="note rv">
+      <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 8h.01M11 12h1v4h1"/></svg>
+      <div class="body">
+        <b>会申请的权限</b>　屏幕录制（系统音频模式首次运行）、麦克风（麦克风 / 线路输入模式）、自动化（从 Music / Spotify 读取曲目）。
+        音频只进 DSP，<b>不录制、不上传、不进入输出链路</b>。
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ FAQ ============ -->
+<section class="band" id="faq">
+  <div class="wrap">
+    <div class="sec-head rv">
+      <p class="eyebrow">FAQ</p>
+      <h2>常见问题</h2>
+    </div>
+
+    <div class="faq rv">
+      <details open>
+        <summary>为什么不直接连插件的 MIDI 输入？</summary>
+        <div class="ans">Studio One 7 的插入效果器收不到 MIDI（真机实测）。宏旋钮是宿主参数，能被外部控制器学习，所以链路走 <span class="mono">CC → 外部设备 → 宏旋钮 → 插件参数</span>，绕开插件本身。</div>
+      </details>
+      <details>
+        <summary>宿主收不到 CC 值怎么办？</summary>
+        <div class="ans">先在「MIDI 映射」确认发送通道。默认单通道（1），Studio One 的外部设备里 MIDI 通道也要只勾 1；确认无误仍收不到，再打开 16 通道广播（副作用是 MIDI 学习里会冒出 16 个重复旋钮）。另外每条 CC 默认连发 2 次、间隔 25 ms，对「同值 CC 不响应」的链路更稳。</div>
+      </details>
+      <details>
+        <summary>纯音乐、强打击乐识别不准？</summary>
+        <div class="ans">这类编曲的置信度天然偏低。可以调大稳定化里的「窗口长度」，或降低「置信度下限」；配上贝斯的歌曲通常一眼就准。实在不行，手动改一次就永久修正了。</div>
+      </details>
+      <details>
+        <summary>我的音频会被上传吗？</summary>
+        <div class="ans">不会。音频只进本地 DSP（Accelerate 框架），不录制、不上传、不进入输出链路。唯一联网的动作是启动时同步一次云端曲库，而且只读。</div>
+      </details>
+      <details>
+        <summary>支持哪些修音插件？</summary>
+        <div class="ans">Auto-Tune Pro、Auto-Tune Advanced、Auto-Tune (2026)、Waves Tune Realtime、Topline Vocal Tune。不在列表里的插件选「自定义」，填一下调式总数即可。</div>
+      </details>
+    </div>
+  </div>
+</section>
+
+<!-- ============ CONTACT ============ -->
+<section class="band" id="contact" style="padding-top:24px">
+  <div class="wrap">
+    <div class="sec-head rv">
+      <p class="eyebrow">Contact</p>
+      <h2>遇到问题，或者想提需求。</h2>
+      <p class="sub">崩溃日志、截图、需求、吐槽都可以直接发。加微信时备注一下「Guckey」，通过得更快。</p>
+    </div>
+
+    <div class="contact-grid">
+      <div class="contact rv">
+        <div class="av av-wx">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M9.1 3C5.1 3 1.9 5.7 1.9 9c0 1.9 1.1 3.6 2.8 4.7l-.7 2.1 2.4-1.2c.8.2 1.6.4 2.5.4h.5a5.6 5.6 0 0 1-.2-1.5c0-3.2 3.1-5.8 6.9-5.8h.6C15.9 5 12.8 3 9.1 3zm-2.4 3.3a.9.9 0 1 1 0 1.8.9.9 0 0 1 0-1.8zm4.9 0a.9.9 0 1 1 0 1.8.9.9 0 0 1 0-1.8z"/><path d="M22.1 13.6c0-2.7-2.7-4.9-6-4.9s-6 2.2-6 4.9 2.7 4.9 6 4.9c.7 0 1.4-.1 2-.3l2 1-.6-1.7c1.6-.9 2.6-2.3 2.6-3.9zm-8-1.4a.8.8 0 1 1 0 1.6.8.8 0 0 1 0-1.6zm4 0a.8.8 0 1 1 0 1.6.8.8 0 0 1 0-1.6z"/></svg>
+        </div>
+        <div class="info">
+          <div class="lab">微信</div>
+          <div class="val" id="wx">YX-CJ_6120</div>
+          <div class="hint">加好友请备注「Guckey」</div>
+        </div>
+        <button class="copy" data-copy="#wx">复制</button>
+      </div>
+
+      <div class="contact rv">
+        <div class="av av-mail">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="4.5" width="19" height="15" rx="2.5"/><path d="M3.5 6.5L12 13l8.5-6.5"/></svg>
+        </div>
+        <div class="info">
+          <div class="lab">邮箱</div>
+          <div class="val" id="mail">2297773622@qq.com</div>
+          <div class="hint">崩溃日志与截图可以发这里</div>
+        </div>
+        <button class="copy" data-copy="#mail">复制</button>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ FOOTER ============ -->
+<footer>
+  <div class="wrap">
+    <div class="foot">
+      <div class="foot-l">
+        <img src="assets/icon.png" alt="">
+        <span>Guckey · 为 Studio One 工作流做的基调遥控器</span>
+      </div>
+      <div class="foot-r">
+        <a href="#how">工作原理</a>
+        <a href="#download">下载</a>
+        <a href="#faq">常见问题</a>
+        <a href="#contact">联系</a>
+        <a href="mailto:2297773622@qq.com">邮件</a>
+      </div>
+    </div>
+    <div class="copyright">
+      <span>Copyright © 2026 顾初 · Guckey. All rights reserved.</span>
+    </div>
+  </div>
+</footer>
+
+<script>
+(function(){
+  // 导航条：滚动后加背景
+  var nav = document.getElementById('nav');
+  var onScroll = function(){
+    if (window.scrollY > 12) nav.classList.add('scrolled');
+    else nav.classList.remove('scrolled');
+  };
+  onScroll();
+  window.addEventListener('scroll', onScroll, {passive:true});
+
+  // 滚动进场
+  var items = document.querySelectorAll('.rv');
+  if ('IntersectionObserver' in window) {
+    var io = new IntersectionObserver(function(entries){
+      entries.forEach(function(e){
+        if (e.isIntersecting) {
+          e.target.classList.add('in');
+          io.unobserve(e.target);
+        }
+      });
+    }, {rootMargin:'0px 0px -8% 0px', threshold:0.12});
+    items.forEach(function(el, i){
+      el.style.transitionDelay = Math.min(i % 4, 3) * 70 + 'ms';
+      io.observe(el);
+    });
+  } else {
+    items.forEach(function(el){ el.classList.add('in'); });
+  }
+
+  // 复制
+  function flash(btn, text){
+    var old = btn.textContent;
+    btn.textContent = text;
+    btn.classList.add('done');
+    setTimeout(function(){
+      btn.textContent = old;
+      btn.classList.remove('done');
+    }, 1500);
+  }
+  document.querySelectorAll('[data-copy]').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      var el = document.querySelector(btn.getAttribute('data-copy'));
+      var text = el ? el.textContent.trim() : '';
+      var done = function(){ flash(btn, '已复制'); };
+      if (navigator.clipboard && window.isSecureContext) {
+        navigator.clipboard.writeText(text).then(done).catch(fallback);
+      } else { fallback(); }
+      function fallback(){
+        var ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.position = 'fixed';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.select();
+        try { document.execCommand('copy'); done(); } catch(e){ flash(btn, '复制失败'); }
+        document.body.removeChild(ta);
+      }
+    });
+  });
+
+  // 十二音级装饰：缓慢轮换高亮
+  var keys = document.querySelectorAll('#keys span');
+  if (keys.length && !window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    var idx = 7;
+    setInterval(function(){
+      keys.forEach(function(k){ k.classList.remove('on'); });
+      idx = (idx + 1) % keys.length;
+      keys[idx].classList.add('on');
+    }, 2600);
+  }
+})();
+</script>
+</body>
+</html>
