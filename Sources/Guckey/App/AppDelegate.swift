@@ -1,6 +1,25 @@
 import AppKit
 import SwiftUI
 
+// MARK: - 官网入口
+
+/// 官网地址以 Base64 存放：菜单里不显示链接文字，源码里也不出现明文地址。
+/// 点击后直接交给系统默认浏览器打开。
+enum WebsiteLink {
+    private static let encoded = "aHR0cHM6Ly9ndWNrZXkucGFnZXMuZGV2"
+
+    static var url: URL? {
+        guard let data = Data(base64Encoded: encoded) else { return nil }
+        return URL(string: String(decoding: data, as: UTF8.self))
+    }
+
+    @discardableResult
+    static func open() -> Bool {
+        guard let url else { return false }
+        return NSWorkspace.shared.open(url)
+    }
+}
+
 // MARK: - App 入口（纯 AppKit 生命周期 + SwiftUI 视图）
 
 /// 采用 AppDelegate 而不是 SwiftUI WindowGroup，是为了对 NSPanel 的
@@ -64,6 +83,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                                       action: #selector(showSupport(_:)),
                                       keyEquivalent: "")
         support.target = self
+        let website = appMenu.addItem(withTitle: "前往官网",
+                                      action: #selector(openWebsite(_:)),
+                                      keyEquivalent: "")
+        website.target = self
         appMenu.addItem(NSMenuItem.separator())
         let quit = appMenu.addItem(withTitle: "退出 Guckey",
                                    action: #selector(NSApplication.terminate(_:)),
@@ -103,6 +126,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                                     action: #selector(openMainWindow(_:)),
                                     keyEquivalent: "")
         openMain.target = self
+        let website = menu.addItem(withTitle: "前往官网",
+                                   action: #selector(openWebsite(_:)),
+                                   keyEquivalent: "")
+        website.target = self
         menu.addItem(NSMenuItem.separator())
         let quit = menu.addItem(withTitle: "退出",
                                 action: #selector(NSApplication.terminate(_:)),
@@ -174,6 +201,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func toggleFloating(_ sender: Any?) {
         WindowCoordinator.shared.toggleFloating()
+    }
+
+    @objc private func openWebsite(_ sender: Any?) {
+        WebsiteLink.open()
     }
 
     // MARK: 关于

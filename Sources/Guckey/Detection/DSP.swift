@@ -74,6 +74,15 @@ final class FFTChromaAnalyzer {
     private let fftSetup: FFTSetup?
     private var window = [Float](repeating: 0, count: 4096)
 
+    // 复用缓冲区：每帧若重新分配 5 个堆数组，按 10 余帧/秒计算会持续制造
+    // 数十 KB/s 的分配-释放churn，长时间播放后堆碎片与常驻内存都会上涨。
+    // 分析只发生在 KeyDetectionEngine 的单条串行队列上，这些缓冲不会并发访问。
+    private var inputBuffer = [Float](repeating: 0, count: 4096)
+    private var windowedBuffer = [Float](repeating: 0, count: 4096)
+    private var realBuffer = [Float](repeating: 0, count: 2048)
+    private var imagBuffer = [Float](repeating: 0, count: 2048)
+    private var magnitudeBuffer = [Float](repeating: 0, count: 2048)
+
     /// 动态范围压缩指数：色度能量开方，避免低频大能量独占。
     var compressionExponent: Double = 0.5
 
@@ -91,29 +100,29 @@ final class FFTChromaAnalyzer {
                 sampleRate: Double,
                 bandLow: Double = 60,
                 bandHigh: Double = 500) -> [Double] {
-        var input = [Float](repeating: 0, count: fftSize)
-        let count = min(frame.count, fftSize)
-        for i in 0..<count { input[i] = frame[i] }
-
-        var windowed = [Float](repeating: 0, count: fftSize)
-        vDSP_vmul(input, 1, window, 1, &windowed, 1, vDSP_Length(fftSize))
-
-        var real = [Float](repeating: 0, count: half)
-        var imag = [Float](repeating: 0, count: half)
-        var magnitudes = [Float](repeating: 0, count: half)
-
         guard let fftSetup else { return [Double](repeating: 0, count: 12) }
 
-        real.withUnsafeMutableBufferPointer { rb in
-            imag.withUnsafeMutableBufferPointer { ib in
+        // 复用缓冲：先清零，避免上一帧的尾部数据混进本帧
+        for i in 0..<fftSize { inputBuffer[i] = 0 }
+        let count = min(frame.count, fftSize)
+        for i in 0..<count { inputBuffer[i] = frame[i] }
+
+        windowedBuffer.withUnsafeMutableBufferPointer { wb in
+            inputBuffer.withUnsafeBufferPointer { ib in
+                vDSP_vmul(ib.baseAddress!, 1, window, 1, wb.baseAddress!, 1, vDSP_Length(fftSize))
+            }
+        }
+
+        realBuffer.withUnsafeMutableBufferPointer { rb in
+            imagBuffer.withUnsafeMutableBufferPointer { ib in
                 var split = DSPSplitComplex(realp: rb.baseAddress!, imagp: ib.baseAddress!)
-                windowed.withUnsafeBufferPointer { wb in
+                windowedBuffer.withUnsafeBufferPointer { wb in
                     wb.baseAddress!.withMemoryRebound(to: DSPComplex.self, capacity: half) { cpx in
                         vDSP_ctoz(cpx, 2, &split, 1, vDSP_Length(half))
                     }
                 }
                 vDSP_fft_zrip(fftSetup, &split, 1, log2n, FFTDirection(kFFTDirection_Forward))
-                magnitudes.withUnsafeMutableBufferPointer { mb in
+                magnitudeBuffer.withUnsafeMutableBufferPointer { mb in
                     vDSP_zvmags(&split, 1, mb.baseAddress!, 1, vDSP_Length(half))
                 }
             }
@@ -137,7 +146,7 @@ final class FFTChromaAnalyzer {
                 guard center > 0, center < half else { continue }
                 var peak: Float = 0
                 for bin in max(1, center - 1)...min(half - 1, center + 1) {
-                    peak = max(peak, magnitudes[bin])
+                    peak = max(peak, magnitudeBuffer[bin])
                 }
                 energy += Double(peak) / Double(harmonic)
             }

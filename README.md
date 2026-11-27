@@ -201,7 +201,7 @@ chmod 600 ~/Library/Application\ Support/Guckey/CloudConfig.json
 | Auto-Tune Advanced | 15 | 第 2 项 | 第 3 项 |
 | Auto-Tune (2026) | 15 | 第 2 项 | 第 3 项 |
 | Waves Tune Realtime | 44 | 第 3 项 | 第 4 项 |
-| topline | 10 | 第 2 项 | 第 3 项 |
+| Topline Vocal Tune | 10 | 第 2 项 | 第 3 项 |
 
 不在列表里的插件选「自定义」，手动填总数（默认按第 2 / 第 3 段）。
 

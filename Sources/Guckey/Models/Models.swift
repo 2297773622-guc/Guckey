@@ -469,13 +469,18 @@ struct TuningPluginPreset: Identifiable, Hashable {
                            scaleCount: 15, majorIndex: 2, minorIndex: 3),
         TuningPluginPreset(id: "wavestune", name: "Waves Tune Realtime",
                            scaleCount: 44, majorIndex: 3, minorIndex: 4),
-        TuningPluginPreset(id: "topline", name: "Topline Vocal Tune",
+        TuningPluginPreset(id: "toplinevocaltune", name: "Topline Vocal Tune",
                            scaleCount: 10, majorIndex: 2, minorIndex: 3)
     ]
 
+    /// 早期版本把 id 存成了短名 "topline"，改名后旧配置仍要能解析出来，
+    /// 否则老用户重启后插件选择会掉回「自定义」。
+    private static let legacyIDs: [String: String] = ["topline": "toplinevocaltune"]
+
     static func find(_ id: String?) -> TuningPluginPreset? {
         guard let id, !id.isEmpty else { return nil }
-        return all.first { $0.id == id }
+        let resolved = legacyIDs[id] ?? id
+        return all.first { $0.id == resolved }
     }
 }
 

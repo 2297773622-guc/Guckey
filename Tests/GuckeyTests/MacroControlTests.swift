@@ -207,10 +207,12 @@ final class MacroControlTests: XCTestCase {
         XCTAssertEqual(waves.majorIndex, 3)
         XCTAssertEqual(waves.minorIndex, 4)
 
-        let topline = try XCTUnwrap(TuningPluginPreset.find("topline"))
-        XCTAssertEqual(topline.scaleCount, 10)
-        XCTAssertEqual(topline.majorIndex, 2)
-        XCTAssertEqual(topline.minorIndex, 3)
+        let toplineVocalTune = try XCTUnwrap(TuningPluginPreset.find("toplinevocaltune"))
+        XCTAssertEqual(toplineVocalTune.scaleCount, 10)
+        XCTAssertEqual(toplineVocalTune.majorIndex, 2)
+        XCTAssertEqual(toplineVocalTune.minorIndex, 3)
+        XCTAssertEqual(TuningPluginPreset.find("topline")?.id, "toplinevocaltune",
+                       "旧配置里的短名仍要能解析到同一个预设")
 
         XCTAssertNil(TuningPluginPreset.find(""), "空串代表自定义")
         XCTAssertNil(TuningPluginPreset.find(nil))
